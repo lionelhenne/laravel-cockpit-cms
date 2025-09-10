@@ -76,7 +76,6 @@ class PageController extends Controller
             }
         }';
 
-        // Corrected variable name from $this->cockpitService to $this->cockpit
         $result = $this->cockpit->query($query);
 
         $banner = collect($result['data']['bannerModel'] ?? []);
@@ -86,7 +85,6 @@ class PageController extends Controller
     }
 }
 ```
-*Note: I corrected a small typo in your example code (`$this->cockpitService` should be `$this->cockpit` based on your `__construct` method).*
 
 ## License
 
