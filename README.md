@@ -30,7 +30,7 @@ The Service Provider will be automatically registered thanks to Laravel's packag
     Next, open your `.env` file and add the following two keys with your information:
 
     ```.env
-    COCKPIT_GRAPHQL_ENDPOINT="[https://your-site.com/api/gql](https://your-site.com/api/gql)"
+    COCKPIT_GRAPHQL_ENDPOINT="https://your-cockpit-site.com/api/gql"
     COCKPIT_API_TOKEN="API-xxxxxxxxxxxxxxxxxxxx"
     ```
 
