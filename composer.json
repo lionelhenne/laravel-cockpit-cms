@@ -1,0 +1,29 @@
+{
+    "name": "lionelhenne/laravel-cockpit-cms",
+    "description": "A lightweight client for the Cockpit CMS GraphQL API.",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Lionel Henné",
+            "email": "lionelhenne@gmail.com"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "illuminate/support": "^10.0 || ^11.0",
+        "illuminate/http": "^10.0 || ^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "lionelhenne\\LaravelCockpitCms\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "lionelhenne\\LaravelCockpitCms\\CockpitServiceProvider"
+            ]
+        }
+    }
+}
