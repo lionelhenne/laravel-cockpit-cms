@@ -40,7 +40,7 @@ The `CockpitService` is registered in Laravel's service container. You can simpl
 
 The main method is `query()`, which takes a GraphQL string as its first argument and an optional array of variables as its second.
 
-### Controller Example
+### Dependency Injection Example
 
 ```php
 <?php
@@ -85,6 +85,37 @@ class PageController extends Controller
     }
 }
 ```
+
+### Facade Example
+
+If you prefer, you can use the `Cockpit` facade for a more concise syntax.
+
+```php
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use lionelhenne\LaravelCockpitCms\Facades\Cockpit; // Import the facade
+
+class PageController extends Controller
+{
+    public function __invoke(Request $request)
+    {
+        $query = '{
+            bannerModel {
+                content
+            }
+        }';
+
+        // Use the facade directly
+        $result = Cockpit::query($query);
+
+        $banner = collect($result['data']['bannerModel'] ?? []);
+
+        return view('blog.index', compact('banner'));
+    }
+}
 
 ## License
 

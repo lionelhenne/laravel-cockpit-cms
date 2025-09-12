@@ -23,7 +23,10 @@
         "laravel": {
             "providers": [
                 "lionelhenne\\LaravelCockpitCms\\CockpitServiceProvider"
-            ]
+            ],
+            "aliases": {
+                "Cockpit": "lionelhenne\\LaravelCockpitCms\\Facades\\Cockpit"
+            }
         }
     }
 }
