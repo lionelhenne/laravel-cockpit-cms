@@ -116,6 +116,7 @@ class PageController extends Controller
         return view('blog.index', compact('banner'));
     }
 }
+```
 
 ## License
 
