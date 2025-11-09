@@ -42,6 +42,12 @@ class CockpitService
             return null;
         }
 
+        // En dev, URL directe sans proxy
+        if (app()->environment('local')) {
+            return config('cockpit.url') . '/storage/uploads/' . ltrim($path, '/');
+        }
+
+        // En prod, proxy avec cache
         $cleanPath = ltrim($path, '/');
         return route('cockpit.image', ['path' => $cleanPath]);
     }
