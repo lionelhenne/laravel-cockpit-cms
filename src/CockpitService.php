@@ -27,12 +27,22 @@ class CockpitService
                 'variables' => $variables,
             ]);
 
-            $response->throw(); // Lance une exception si la requête échoue
+            $response->throw();
 
             return $response->json();
         } catch (\Exception $e) {
             Log::error("Erreur Cockpit API: " . $e->getMessage());
             return ['data' => null, 'error' => $e->getMessage()];
         }
+    }
+
+    public function imageUrl(?string $path): ?string
+    {
+        if (!$path) {
+            return null;
+        }
+
+        $cleanPath = ltrim($path, '/');
+        return route('cockpit.image', ['path' => $cleanPath]);
     }
 }

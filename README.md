@@ -27,9 +27,10 @@ The Service Provider will be automatically registered thanks to Laravel's packag
 
 2.  **Add your environment variables**
 
-    Next, open your `.env` file and add the following two keys with your information:
+    Next, open your `.env` file and add the following keys with your information:
 
     ```.env
+    COCKPIT_URL="https://your-cockpit-site.com"
     COCKPIT_GRAPHQL_ENDPOINT="https://your-cockpit-site.com/api/gql"
     COCKPIT_API_TOKEN="API-xxxxxxxxxxxxxxxxxxxx"
     ```
@@ -116,6 +117,43 @@ class PageController extends Controller
         return view('blog.index', compact('banner'));
     }
 }
+```
+
+### Image Proxy
+
+The package includes an automatic image proxy with caching. Simply use the `imageUrl()` method:
+
+```php
+// In your controller
+$result = Cockpit::query($query);
+$banner = $result['data']['bannerModel'];
+
+// In your Blade view
+<img src="{{ Cockpit::imageUrl($banner['image']['path']) }}" alt="">
+```
+
+The proxy automatically:
+- Caches images in production (1 year)
+- Serves images without cache in local environment
+- Adds appropriate HTTP cache headers for browser caching
+
+You can also use it with dependency injection:
+
+```php
+// In your controller
+public function __construct(CockpitService $cockpit)
+{
+    $this->cockpit = $cockpit;
+}
+
+// In your view
+<img src="{{ $cockpit->imageUrl($article['image']['path']) }}" alt="">
+```
+
+**Clear image cache in production:**
+
+```bash
+php artisan cache:clear
 ```
 
 ## License

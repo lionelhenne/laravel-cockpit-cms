@@ -7,6 +7,7 @@ use lionelhenne\LaravelCockpitCms\CockpitService;
 
 /**
  * @method static array query(string $graphQLQuery, array $variables = [])
+ * @method static string|null imageUrl(?string $path)
  *
  * @see \lionelhenne\LaravelCockpitCms\CockpitService
  */

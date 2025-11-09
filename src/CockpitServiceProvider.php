@@ -3,36 +3,74 @@
 namespace lionelhenne\LaravelCockpitCms;
 
 use Illuminate\Support\ServiceProvider;
-use lionelhenne\LaravelCockpitCms\CockpitService;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 
 class CockpitServiceProvider extends ServiceProvider
 {
-    /**
-     * Register any application services.
-     */
     public function register(): void
     {
-        // 1. Fusionne la config par défaut pour que `config('cockpit.key')` fonctionne
         $this->mergeConfigFrom(
             __DIR__.'/../config/cockpit.php', 'cockpit'
         );
 
-        // 2. On met ici la logique de ton AppServiceProvider
-        // On enregistre CockpitService comme un singleton dans l'app
         $this->app->singleton(CockpitService::class, function ($app) {
             return new CockpitService();
         });
     }
 
-    /**
-     * Bootstrap any application services.
-     */
     public function boot(): void
     {
-        // 3. On rend le fichier de config "publiable"
-        // L'utilisateur pourra l'écraser avec `php artisan vendor:publish`
         $this->publishes([
             __DIR__.'/../config/cockpit.php' => config_path('cockpit.php'),
-        ], 'cockpit-config'); // 'cockpit-config' est un tag optionnel mais propre
+        ], 'cockpit-config');
+
+        // Enregistre la route pour les images
+        $this->registerImageRoute();
+    }
+
+    protected function registerImageRoute(): void
+    {
+        Route::get('/cockpit-images/{path}', function ($path) {
+            $url = config('cockpit.url') . '/storage/uploads/' . ltrim($path, '/');
+            
+            // En dev, on saute le cache
+            if (app()->environment('local')) {
+                $response = Http::timeout(10)->get($url);
+                
+                if ($response->failed()) {
+                    abort(404);
+                }
+                
+                return response($response->body(), 200)
+                    ->header('Content-Type', $response->header('Content-Type'))
+                    ->header('Cache-Control', 'no-cache');
+            }
+            
+            // En prod, on cache
+            $cacheKey = 'cockpit_image_' . md5($path);
+            
+            $image = Cache::remember($cacheKey, now()->addYear(), function () use ($url) {
+                $response = Http::timeout(10)->get($url);
+                
+                if ($response->failed()) {
+                    return null;
+                }
+                
+                return [
+                    'body' => $response->body(),
+                    'content_type' => $response->header('Content-Type')
+                ];
+            });
+            
+            if (!$image) {
+                abort(404);
+            }
+            
+            return response($image['body'], 200)
+                ->header('Content-Type', $image['content_type'])
+                ->header('Cache-Control', 'public, max-age=31536000');
+        })->where('path', '.*')->name('cockpit.image');
     }
 }
