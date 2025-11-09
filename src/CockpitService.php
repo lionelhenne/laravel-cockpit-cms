@@ -38,7 +38,7 @@ class CockpitService
 
     public function imageUrl(?string $path): ?string
     {
-        if (!$path) {
+        if ( ! $path) {
             return null;
         }
 
