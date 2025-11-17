@@ -37,11 +37,142 @@ The Service Provider will be automatically registered thanks to Laravel's packag
 
 ## Usage
 
-The `CockpitService` is registered in Laravel's service container. You can simply inject it as a dependency in any controller, job, or service where you need it.
+This package is designed to simplify fetching data by allowing you to batch multiple GraphQL query fragments into a single API call, with caching built-in.
 
-The main method is `query()`, which takes a GraphQL string as its first argument and an optional array of variables as its second.
+### High-Level Helpers (Recommended)
+
+The recommended way to interact with Cockpit is via the high-level `execute()` and `executeCached()` methods. These methods automatically assemble your query fragments.
+- `Cockpit::execute(array $queries)`: Assembles and executes a batch of query fragments without caching.
+- `Cockpit::executeCached(array $queries, string $cacheKey, $duration = null)`: Assembles, executes, and caches the result. The duration defaults to 1 month.
+
+### Recommended Usage (Facade Example)
+
+This example shows how to fetch all data for a homepage in a single, cached API call.
+
+```php
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use lionelhenne\LaravelCockpitCms\Facades\Cockpit; // Import the facade
+
+class HomepageController extends Controller
+{
+    /**
+     * Handle the incoming request.
+     */
+    public function __invoke(Request $request)
+    {
+        // 1. Define all the query fragments you need
+        $queries = [
+            $this->getSettingsModel(),
+            $this->getHeroModel(),
+            $this->getArticlesModel(3),
+        ];
+
+        $cacheKey = 'homepage_cockpit_data';
+
+        // 2. The application decides the cache strategy
+        if (app()->environment('local')) {
+            // In local, run without cache
+            $result = Cockpit::execute($queries);
+        } else {
+            // In production, use the cached helper
+            $result = Cockpit::executeCached($queries, $cacheKey);
+        }
+
+        // 3. Transform your data and pass it to the view
+        
+        // ---
+        // Option 1: Pass a single data collection (Simple & Direct)
+        // You will use the raw Cockpit model keys in your view.
+        // ---
+        $data = collect($result['data'] ?? []);
+
+        return view('homepage.index', compact('data'));
+        // In Blade, you access: $data['settingsModel']['title'], $data['heroModel']['subtitle'], etc.
+
+
+        /*
+        // ---
+        // Option 2: Pass a single, renamed data array (Cleaner for Blade)
+        // This creates a more readable array for your view.
+        // ---
+        $data = [
+            'settings' => collect($result['data']['settingsModel'] ?? []),
+            'hero'     => collect($result['data']['heroModel'] ?? []),
+            'articles' => collect($result['data']['articlesModel'] ?? []),
+        ];
+
+        return view('homepage.index', compact('data'));
+        // In Blade, you access: $data['settings']['title'], $data['hero']['subtitle'], etc.
+        */
+
+
+        /*
+        // ---
+        // Option 3: Pass individual variables (Classic approach)
+        // This makes each model a separate variable in your view.
+        // ---
+        $settings = collect($result['data']['settingsModel'] ?? []);
+        $hero     = collect($result['data']['heroModel'] ?? []);
+        $articles = collect($result['data']['articlesModel'] ?? []);
+
+        return view('homepage.index', compact('settings','hero','articles'));
+        // In Blade, you access: $settings['title'], $hero['subtitle'], etc.
+        */
+    }
+}
+```
+
+You can store these fragments in a Trait (`app/Http/Controllers/Traits/CockpitGQLQueries.php`):
+
+```php
+<?php
+
+namespace App\Http\Controllers\Traits;
+
+trait CockpitGQLQueries
+{
+    protected function getSettingsModel(): string
+    {
+        return '
+            settingsModel {
+                title
+                description
+            }
+        ';
+    }
+
+    protected function getHeroModel(): string
+    {
+        return '
+            heroModel {
+                title
+                subtitle
+                picture
+            }
+        ';
+    }
+
+    protected function getArticlesModel(int $limit = 3): string
+    {
+        return '
+            articlesModel(limit: '.$limit.', filter: {_state: 1}, sort: {date: -1}) {
+                _id
+                date
+                title
+                excerpt
+            }
+        ';
+    }
+}
+```
 
 ### Dependency Injection Example
+
+If you prefer dependency injection, the same methods are available on the `CockpitService`.
 
 ```php
 <?php
@@ -62,61 +193,35 @@ class PageController extends Controller
 
     public function __invoke(Request $request)
     {
-        $query = '{
-            bannerModel {
-                content
-            }
-            articlesModel(limit: 2, filter: {_state: 1}, sort: {_created: -1}) {
-                _id
-                date
-                tag
-                title
-                excerpt
-                content
-                image
-            }
-        }';
+        $queries = [ /* ... your query fragments ... */ ];
+        $cacheKey = 'my_page_data';
 
-        $result = $this->cockpit->query($query);
+        if (app()->environment('local')) {
+            $result = $this->cockpit->execute($queries);
+        } else {
+            $result = $this->cockpit->executeCached($queries, $cacheKey);
+        }
 
-        $banner = collect($result['data']['bannerModel'] ?? []);
-        $articles = collect($result['data']['articlesModel'] ?? []);
+        $data = collect($result['data']['myModel'] ?? []);
 
-        return view('blog.index', compact('banner','articles'));
+        return view('page.index', compact('data'));
     }
 }
 ```
 
-### Facade Example
+### Low-Level Usage
 
-If you prefer, you can use the `Cockpit` facade for a more concise syntax.
+For simple calls or testing, you can still use the low-level `query()` method, which takes a single, complete GraphQL query string.
 
 ```php
-<?php
-
-namespace App\Http\Controllers;
-
-use Illuminate\Http\Request;
-use lionelhenne\LaravelCockpitCms\Facades\Cockpit; // Import the facade
-
-class PageController extends Controller
-{
-    public function __invoke(Request $request)
-    {
-        $query = '{
-            bannerModel {
-                content
-            }
-        }';
-
-        // Use the facade directly
-        $result = Cockpit::query($query);
-
-        $banner = collect($result['data']['bannerModel'] ?? []);
-
-        return view('blog.index', compact('banner'));
+$query = '{
+    bannerModel {
+        content
     }
-}
+}';
+
+$result = Cockpit::query($query);
+$banner = collect($result['data']['bannerModel'] ?? []);
 ```
 
 ### Image Proxy
@@ -125,7 +230,8 @@ The package includes an automatic image proxy with caching. Simply use the `imag
 
 ```php
 // In your controller
-$result = Cockpit::query($query);
+$queries = [ $this->getBannerModel() ];
+$result = Cockpit::executeCached($queries, 'banner_key');
 $banner = $result['data']['bannerModel'];
 
 // In your Blade view
