@@ -27,13 +27,15 @@ The Service Provider will be automatically registered thanks to Laravel's packag
 
 2.  **Add your environment variables**
 
-    Next, open your `.env` file and add the following keys with your information:
+Next, open your `.env` file and add the following keys with your information:
 
-    ```.env
-    COCKPIT_URL="https://your-cockpit-site.com"
-    COCKPIT_GRAPHQL_ENDPOINT="https://your-cockpit-site.com/api/gql"
-    COCKPIT_API_TOKEN="API-xxxxxxxxxxxxxxxxxxxx"
-    ```
+```.env
+COCKPIT_URL="[https://your-cockpit-site.com](https://your-cockpit-site.com)"
+COCKPIT_GRAPHQL_ENDPOINT="[https://your-cockpit-site.com/api/gql](https://your-cockpit-site.com/api/gql)"
+COCKPIT_API_TOKEN="API-xxxxxxxxxxxxxxxxxxxx"
+```
+
+> **Note regarding Public APIs:** If your Cockpit API access is configured as **Public** (no token required), you can leave `COCKPIT_API_TOKEN` empty in your `.env` file. The client will automatically skip the `Authorization` header to avoid 401 errors.
 
 ## Usage
 
