@@ -27,20 +27,27 @@ class CockpitService
      */
     public function query(string $graphQLQuery, array $variables = []): array
     {
-        // 1. On définit les headers minimaux obligatoires
+        // 1. Define minimal required headers
         $headers = [
             'Content-Type' => 'application/json',
         ];
 
-        // 2. On n'ajoute le header "Authorization" QUE si un token est réellement configuré.
-        // Dans ton cas (API Publique), $this->token sera vide, donc ce bloc sera ignoré.
+        // 2. Add "Authorization" header ONLY if a token is actually configured.
+        // In your case (Public API), $this->token will be empty, so this block will be ignored.
         if (!empty($this->token)) {
             $headers['Authorization'] = 'Bearer ' . $this->token;
         }
 
         try {
-            // 3. On passe le tableau $headers dynamique à la requête
-            $response = Http::withHeaders($headers)->post($this->endpoint, [
+            // 3. Pass the dynamic $headers array to the request
+            $http = Http::withHeaders($headers);
+
+            // In local development, disable SSL verification
+            if (app()->environment('local')) {
+                $http = $http->withOptions(['verify' => false]);
+            }
+
+            $response = $http->post($this->endpoint, [
                 'query' => $graphQLQuery,
                 'variables' => $variables,
             ]);
