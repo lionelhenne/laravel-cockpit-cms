@@ -3,7 +3,7 @@
 namespace lionelhenne\LaravelCockpitCms\Console\Commands;
 
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\File; // On utilise File ici
 
 class PurgeCockpitImages extends Command
 {
@@ -18,16 +18,20 @@ class PurgeCockpitImages extends Command
 
         $this->info("Nettoyage du dossier cockpit...");
         
-        $directory = 'public/cockpit';
+        // On définit le chemin absolu vers le dossier public dans le storage
+        $path = storage_path('app/public/cockpit');
 
-        // On supprime tout le dossier
-        Storage::deleteDirectory($directory);
-        
-        // On le recrée immédiatement à vide pour garder le lien symbolique "vivant"
-        if (Storage::makeDirectory($directory)) {
+        if (!File::exists($path)) {
+            $this->warn("Le dossier n'existe pas, rien à purger.");
+            return;
+        }
+
+        // cleanDirectory vide tout mais garde le dossier racine 'cockpit'
+        // C'est une méthode native de Laravel Filesystem
+        if (File::cleanDirectory($path)) {
             $this->info("Dossier vidé avec succès.");
         } else {
-            $this->error("Erreur lors du nettoyage.");
+            $this->error("Erreur lors du nettoyage physique du dossier.");
         }
     }
 }
