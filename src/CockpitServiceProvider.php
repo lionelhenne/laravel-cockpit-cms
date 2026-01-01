@@ -39,6 +39,7 @@ class CockpitServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 WarmupCockpitImages::class,
+                PurgeCockpitImages::class,
             ]);
         }
 
