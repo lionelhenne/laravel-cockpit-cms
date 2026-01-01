@@ -18,8 +18,13 @@ class PurgeCockpitImages extends Command
 
         $this->info("Nettoyage du dossier cockpit...");
         
-        // cleanDirectory vide le contenu mais garde le dossier 'cockpit'
-        if (Storage::cleanDirectory('public/cockpit')) {
+        $directory = 'public/cockpit';
+
+        // On supprime tout le dossier
+        Storage::deleteDirectory($directory);
+        
+        // On le recrée immédiatement à vide pour garder le lien symbolique "vivant"
+        if (Storage::makeDirectory($directory)) {
             $this->info("Dossier vidé avec succès.");
         } else {
             $this->error("Erreur lors du nettoyage.");
