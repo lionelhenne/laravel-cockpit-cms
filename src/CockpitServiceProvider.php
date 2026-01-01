@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use lionelhenne\LaravelCockpitCms\Console\Commands\WarmupCockpitImages;
+use lionelhenne\LaravelCockpitCms\Console\Commands\PurgeCockpitImages;
 
 class CockpitServiceProvider extends ServiceProvider
 {
