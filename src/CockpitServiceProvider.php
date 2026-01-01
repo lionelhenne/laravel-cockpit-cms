@@ -4,13 +4,18 @@ namespace lionelhenne\LaravelCockpitCms;
 
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
+use lionelhenne\LaravelCockpitCms\Console\Commands\WarmupCockpitImages;
 
 class CockpitServiceProvider extends ServiceProvider
 {
+    /**
+     * Register services.
+     */
     public function register(): void
     {
+        // IMPORTANT : Conserve bien ceci pour la config
         $this->mergeConfigFrom(
             __DIR__.'/../config/cockpit.php', 'cockpit'
         );
@@ -20,11 +25,21 @@ class CockpitServiceProvider extends ServiceProvider
         });
     }
 
+    /**
+     * Bootstrap services.
+     */
     public function boot(): void
     {
         $this->publishes([
             __DIR__.'/../config/cockpit.php' => config_path('cockpit.php'),
         ], 'cockpit-config');
+
+        // Enregistrement de la commande de warmup
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                WarmupCockpitImages::class,
+            ]);
+        }
 
         // Enregistre la route pour les images
         $this->registerImageRoute();
@@ -33,44 +48,41 @@ class CockpitServiceProvider extends ServiceProvider
     protected function registerImageRoute(): void
     {
         Route::get('/cockpit-images/{path}', function ($path) {
-            $url = config('cockpit.url') . '/storage/uploads/' . ltrim($path, '/');
+            $cockpitUrl = config('cockpit.url');
+            $remoteUrl = rtrim($cockpitUrl, '/') . '/storage/uploads/' . ltrim($path, '/');
             
-            // En dev, on saute le cache
+            // On stocke dans storage/app/public/cockpit/
+            $localPath = 'public/cockpit/' . ltrim($path, '/');
+
+            // 1. Si déjà sur le disque : on sert le fichier directement
+            if (Storage::exists($localPath)) {
+                return response()->file(storage_path('app/' . $localPath), [
+                    'Cache-Control' => 'public, max-age=31536000',
+                ]);
+            }
+
+            // 2. Si Local : Redirection directe vers Cockpit pour éviter de saturer PHP
             if (app()->environment('local')) {
-                $response = Http::timeout(10)->get($url);
-                
-                if ($response->failed()) {
-                    abort(404);
-                }
-                
-                return response($response->body(), 200)
-                    ->header('Content-Type', $response->header('Content-Type'))
-                    ->header('Cache-Control', 'no-cache');
+                return redirect($remoteUrl);
             }
-            
-            // En prod, on cache
-            $cacheKey = 'cockpit_image_' . md5($path);
-            
-            $image = Cache::remember($cacheKey, now()->addYear(), function () use ($url) {
-                $response = Http::timeout(10)->get($url);
-                
-                if ($response->failed()) {
-                    return null;
+
+            // 3. Sinon (Production) : Téléchargement et stockage physique
+            try {
+                /** @var \Illuminate\Http\Client\Response $response */
+                $response = Http::timeout(15)->get($remoteUrl);
+
+                if ($response->successful()) {
+                    Storage::put($localPath, $response->body());
+                    
+                    return response($response->body())
+                        ->header('Content-Type', $response->header('Content-Type'))
+                        ->header('Cache-Control', 'public, max-age=31536000');
                 }
-                
-                return [
-                    'body' => $response->body(),
-                    'content_type' => $response->header('Content-Type')
-                ];
-            });
-            
-            if (!$image) {
-                abort(404);
+            } catch (\Exception $e) {
+                \Log::error("Cockpit Mirror Error: " . $e->getMessage());
             }
-            
-            return response($image['body'], 200)
-                ->header('Content-Type', $image['content_type'])
-                ->header('Cache-Control', 'public, max-age=31536000');
+
+            abort(404);
         })->where('path', '.*')->name('cockpit.image');
     }
 }
