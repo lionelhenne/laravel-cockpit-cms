@@ -51,29 +51,32 @@ class CockpitServiceProvider extends ServiceProvider
         Route::get('/cockpit-images/{path}', function ($path) {
             $cockpitUrl = config('cockpit.url');
             $remoteUrl = rtrim($cockpitUrl, '/') . '/storage/uploads/' . ltrim($path, '/');
-            
-            // On stocke dans storage/app/public/cockpit/
-            $localPath = 'public/cockpit/' . ltrim($path, '/');
+            $localRelativePath = 'public/cockpit/' . ltrim($path, '/');
+            $absolutePath = storage_path('app/' . $localRelativePath);
 
-            // 1. Si déjà sur le disque : on sert le fichier directement
-            if (Storage::exists($localPath)) {
-                return response()->file(storage_path('app/' . $localPath), [
+            // 1. Si le fichier existe physiquement, on le sert direct
+            if (file_exists($absolutePath)) {
+                return response()->file($absolutePath, [
                     'Cache-Control' => 'public, max-age=31536000',
                 ]);
             }
 
-            // 2. Si Local : Redirection directe vers Cockpit pour éviter de saturer PHP
+            // 2. Si Local : Redirection (pour éviter de debugger le réseau en local)
             if (app()->environment('local')) {
                 return redirect($remoteUrl);
             }
 
-            // 3. Sinon (Production) : Téléchargement et stockage physique
+            // 3. Sinon : On tente de le récupérer
             try {
                 /** @var \Illuminate\Http\Client\Response $response */
                 $response = Http::timeout(15)->get($remoteUrl);
 
                 if ($response->successful()) {
-                    Storage::put($localPath, $response->body());
+                    // Créer le dossier parent si besoin
+                    $directory = dirname($localRelativePath);
+                    Storage::makeDirectory($directory);
+
+                    Storage::put($localRelativePath, $response->body());
                     
                     return response($response->body())
                         ->header('Content-Type', $response->header('Content-Type'))
