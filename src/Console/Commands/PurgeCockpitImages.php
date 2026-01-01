@@ -18,10 +18,11 @@ class PurgeCockpitImages extends Command
 
         $this->info("Nettoyage du dossier cockpit...");
         
-        if (Storage::deleteDirectory('public/cockpit')) {
-            $this->info("Dossier purgé avec succès.");
+        // cleanDirectory vide le contenu mais garde le dossier 'cockpit'
+        if (Storage::cleanDirectory('public/cockpit')) {
+            $this->info("Dossier vidé avec succès.");
         } else {
-            $this->error("Erreur lors de la purge.");
+            $this->error("Erreur lors du nettoyage.");
         }
     }
 }
