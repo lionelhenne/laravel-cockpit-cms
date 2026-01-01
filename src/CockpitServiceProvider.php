@@ -6,6 +6,7 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 use lionelhenne\LaravelCockpitCms\Console\Commands\WarmupCockpitImages;
 
 class CockpitServiceProvider extends ServiceProvider
@@ -79,7 +80,7 @@ class CockpitServiceProvider extends ServiceProvider
                         ->header('Cache-Control', 'public, max-age=31536000');
                 }
             } catch (\Exception $e) {
-                \Log::error("Cockpit Mirror Error: " . $e->getMessage());
+                Log::error("Cockpit Mirror Error: " . $e->getMessage());
             }
 
             abort(404);
