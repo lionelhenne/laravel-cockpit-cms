@@ -10,59 +10,107 @@ use App\Http\Controllers\Traits\CockpitGQLQueries;
 class WarmupCockpitImages extends Command
 {
     use CockpitGQLQueries;
+
     protected $signature = 'cockpit:warmup {--queries= : Liste des requêtes GQL séparées par une virgule}';
-    protected $description = 'Aspirer toutes les images de Cockpit vers le stockage local';
+    protected $description = 'Aspirer les images depuis Cockpit vers le stockage local';
+
+    protected array $processed = [];
+    protected array $stats = ['success' => 0, 'fail' => 0, 'skip' => 0];
 
     public function handle()
     {
-        $this->info("Démarrage du warmup des images...");
+        $queries = $this->option('queries');
 
-        // On récupère les requêtes depuis l'option ou une config
-        $queryMethods = $this->option('queries') 
-            ? explode(',', $this->option('queries')) 
-            : ['getActiveSisters', 'getRetiredSisters', 'getBeyondSisters'];
+        if (!$queries) {
+            $this->warn("Aucune requête spécifiée.");
+            $this->line("Usage : <info>php artisan cockpit:warmup --queries=getHeroModel,getNewsModel</info>");
+            return self::FAILURE;
+        }
+
+        $queryMethods = explode(',', $queries);
+        $this->info("Démarrage du warmup...");
 
         foreach ($queryMethods as $method) {
-            $this->line("Exécution de la requête : {$method}");
+            $method = trim($method);
             
-            // Correction ici : on appelle la méthode sur $this
             if (!method_exists($this, $method)) {
-                $this->error("La méthode {$method} n'existe pas dans le trait.");
+                $this->error("\nLa méthode {$method} n'existe pas dans le trait.");
                 continue;
             }
 
-            // On appelle la méthode du trait et on passe le résultat à Cockpit::execute
-            $gql = $this->{$method}(); 
-            $result = Cockpit::execute([$gql]); 
-            
-            $paths = $this->extractImagePaths($result);
+            $this->line("\nRequête : <info>{$method}</info>");
 
-            foreach ($paths as $path) {
-                $url = route('cockpit.image', ['path' => $path]);
-                $this->output->write("Vérification de {$path}... ");
-                
-                /** @var \Illuminate\Http\Client\Response $response */
-                $response = Http::timeout(60)->get($url);
+            try {
+                $gql = $this->{$method}();
+                $result = Cockpit::execute([$gql]);
+                $paths = $this->extractImagePaths($result);
 
-                if ($response->successful()) {
-                    $this->info("OK");
-                } else {
-                    $this->error("ERREUR");
+                if (empty($paths)) {
+                    $this->comment("  Aucune image valide trouvée.");
+                    continue;
                 }
+
+                foreach ($paths as $path) {
+                    $this->warmup($path);
+                    usleep(200000); // Pause de 0.2s
+                }
+            } catch (\Exception $e) {
+                $this->error("  Erreur : " . $e->getMessage());
             }
         }
 
+        $this->line("");
         $this->info("Warmup terminé !");
+        $this->line("• Succès : <fg=green>{$this->stats['success']}</>");
+        $this->line("• Échecs : <fg=red>{$this->stats['fail']}</>");
+        $this->line("• Doublons ignorés : {$this->stats['skip']}");
+        
+        return self::SUCCESS;
+    }
+
+    protected function warmup(string $path)
+    {
+        if (in_array($path, $this->processed)) {
+            $this->stats['skip']++;
+            return;
+        }
+
+        $url = route('cockpit.image', ['path' => $path]);
+        $this->output->write("  Vérification {$path} ... ");
+
+        try {
+            /** @var \Illuminate\Http\Client\Response $response */
+            $response = Http::timeout(30)->get($url);
+            if ($response->successful()) {
+                $this->info("OK");
+                $this->processed[] = $path;
+                $this->stats['success']++;
+            } else {
+                $this->error("FAIL (" . $response->status() . ")");
+                $this->stats['fail']++;
+            }
+        } catch (\Exception $e) {
+            $this->error("ERREUR HTTP");
+            $this->stats['fail']++;
+        }
     }
 
     protected function extractImagePaths($data): array
     {
         $paths = [];
-        array_walk_recursive($data, function($value, $key) use (&$paths) {
-            if ($key === 'path' && is_string($value) && (strpos($value, '.') !== false)) {
-                $paths[] = $value;
+        $extensions = ['jpeg', 'jpg', 'gif', 'png', 'webp', 'avif'];
+        $data = json_decode(json_encode($data), true);
+        if (!is_array($data)) return [];
+
+        array_walk_recursive($data, function ($value) use (&$paths, $extensions) {
+            if (is_string($value) && str_contains($value, '.')) {
+                $ext = strtolower(pathinfo($value, PATHINFO_EXTENSION));
+                if (in_array($ext, $extensions) && str_contains($value, '/')) {
+                    $paths[] = ltrim($value, '/');
+                }
             }
         });
+
         return array_unique($paths);
     }
 }
