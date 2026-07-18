@@ -3,7 +3,6 @@
 namespace lionelhenne\LaravelCockpitCms;
 
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 
 class CockpitService
@@ -23,7 +22,7 @@ class CockpitService
      * @param string $graphQLQuery The complete GraphQL query string.
      * @param array $variables Optional variables for the query.
      * @return array
-     * @throws \Illuminate\Http\Client\RequestException
+     * @throws CockpitRequestException
      */
     public function query(string $graphQLQuery, array $variables = []): array
     {
@@ -38,27 +37,38 @@ class CockpitService
             $headers['Authorization'] = 'Bearer ' . $this->token;
         }
 
+        // 3. Pass the dynamic $headers array to the request
+        $http = Http::withHeaders($headers);
+
+        // In local development, disable SSL verification
+        if (app()->environment('local')) {
+            $http = $http->withOptions(['verify' => false]);
+        }
+
         try {
-            // 3. Pass the dynamic $headers array to the request
-            $http = Http::withHeaders($headers);
-
-            // In local development, disable SSL verification
-            if (app()->environment('local')) {
-                $http = $http->withOptions(['verify' => false]);
-            }
-
             $response = $http->post($this->endpoint, [
                 'query' => $graphQLQuery,
                 'variables' => $variables,
             ]);
-
-            $response->throw();
-
-            return $response->json();
-        } catch (\Exception $e) {
-            Log::error("Cockpit API Error: " . $e->getMessage());
-            return ['data' => null, 'error' => $e->getMessage()];
+        } catch (\Throwable $e) {
+            throw new CockpitRequestException('Cockpit unreachable: ' . $e->getMessage(), 0, $e);
         }
+
+        if ($response->failed()) {
+            throw new CockpitRequestException('Cockpit HTTP error (' . $response->status() . '): ' . $response->body());
+        }
+
+        $decoded = $response->json();
+
+        if (isset($decoded['errors'])) {
+            throw new CockpitRequestException('GraphQL error: ' . json_encode($decoded['errors']));
+        }
+
+        if (!isset($decoded['data'])) {
+            throw new CockpitRequestException('Unexpected response from Cockpit (no data key)');
+        }
+
+        return $decoded['data'];
     }
 
     /**
@@ -92,7 +102,7 @@ class CockpitService
      *
      * @param array $queries An array of query fragments.
      * @return array The JSON response from the API.
-     * @throws \Illuminate\Http\Client\RequestException
+     * @throws CockpitRequestException
      */
     public function execute(array $queries): array
     {
@@ -107,7 +117,7 @@ class CockpitService
      * @param string $cacheKey The cache key.
      * @param \DateTimeInterface|\DateInterval|int|null $duration Duration (default: 1 month).
      * @return array The JSON response from the API (cached or fresh).
-     * @throws \Illuminate\Http\Client\RequestException
+     * @throws CockpitRequestException
      */
     public function executeCached(array $queries, string $cacheKey, $duration = null): array
     {
@@ -119,25 +129,18 @@ class CockpitService
     }
 
     /**
-     * Generates the URL for a Cockpit image (handles proxy/cache in prod).
+     * Generates the URL for a Cockpit image, served via the local symlink
+     * (public/cockpit-uploads -> Cockpit's storage/uploads directory).
      *
      * @param string|null $path The image path (e.g., "/path/to/image.jpg").
-     * @return string|null The full URL (direct in dev, via 'cockpit.image' route in prod).
+     * @return string|null The local static URL, or null if no path given.
      */
-    public function imageUrl(?string $path): ?string
+    public function image(?string $path): ?string
     {
         if ( ! $path) {
             return null;
         }
 
-        // In dev, direct URL without proxy
-        // This environment logic is still valid here as it's part of the proxy logic
-        if (app()->environment('local')) {
-            return config('cockpit.url') . '/storage/uploads/' . ltrim($path, '/');
-        }
-
-        // In prod, proxy with cache
-        $cleanPath = ltrim($path, '/');
-        return route('cockpit.image', ['path' => $cleanPath]);
+        return '/cockpit-uploads/' . ltrim($path, '/');
     }
 }

@@ -30,12 +30,22 @@ The Service Provider will be automatically registered thanks to Laravel's packag
 Next, open your `.env` file and add the following keys with your information:
 
 ```.env
-COCKPIT_URL="[https://your-cockpit-site.com](https://your-cockpit-site.com)"
-COCKPIT_GRAPHQL_ENDPOINT="[https://your-cockpit-site.com/api/gql](https://your-cockpit-site.com/api/gql)"
+COCKPIT_URL="https://your-cockpit-site.com"
+COCKPIT_GRAPHQL_ENDPOINT="https://your-cockpit-site.com/api/gql"
 COCKPIT_API_TOKEN="API-xxxxxxxxxxxxxxxxxxxx"
 ```
 
 > **Note regarding Public APIs:** If your Cockpit API access is configured as **Public** (no token required), you can leave `COCKPIT_API_TOKEN` empty in your `.env` file. The client will automatically skip the `Authorization` header to avoid 401 errors.
+
+3.  **Serve Cockpit images via a symlink**
+
+    This package does not proxy or cache images itself. Cockpit images are expected to be served as static files through a symlink pointing to Cockpit's own upload directory:
+
+    ```bash
+    ln -s /path/to/cockpit/storage/uploads public/cockpit-uploads
+    ```
+
+    `Cockpit::image()` (see below) generates paths assuming this symlink exists at `public/cockpit-uploads`. Adjust the symlink name to match if you used a different one.
 
 ## Usage
 
@@ -43,92 +53,41 @@ This package is designed to simplify fetching data by allowing you to batch mult
 
 ### High-Level Helpers (Recommended)
 
-The recommended way to interact with Cockpit is via the high-level `execute()` and `executeCached()` methods. These methods automatically assemble your query fragments.
+The recommended way to interact with Cockpit is via the high-level `execute()` and `executeCached()` methods. These methods automatically assemble your query fragments and return the contents of the GraphQL `data` key directly — no need to unwrap an envelope.
+
 - `Cockpit::execute(array $queries)`: Assembles and executes a batch of query fragments without caching.
 - `Cockpit::executeCached(array $queries, string $cacheKey, $duration = null)`: Assembles, executes, and caches the result. The duration defaults to 1 month.
 
-### Recommended Usage (Facade Example)
+Both methods throw a `CockpitRequestException` on failure (network error, HTTP error, GraphQL error, or malformed response) — see [Error Handling](#error-handling) below.
 
-This example shows how to fetch all data for a homepage in a single, cached API call.
+### Recommended Usage (Base Controller Pattern)
+
+Every controller that needs Cockpit data has to decide between `execute()` (no cache, for local development) and `executeCached()` (production). Rather than repeating that ternary in every controller, push it once into your app's base `Controller`:
 
 ```php
 <?php
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use lionelhenne\LaravelCockpitCms\Facades\Cockpit; // Import the facade
+use App\Http\Controllers\Traits\CockpitGQLQueries;
+use lionelhenne\LaravelCockpitCms\Facades\Cockpit;
 
-class HomepageController extends Controller
+abstract class Controller
 {
-    /**
-     * Handle the incoming request.
-     */
-    public function __invoke(Request $request)
+    use CockpitGQLQueries;
+
+    protected function executeCockpitQueries(array $queries, string $cacheKey): array
     {
-        // 1. Define all the query fragments you need
-        $queries = [
-            $this->getSettingsModel(),
-            $this->getHeroModel(),
-            $this->getArticlesModel(3),
-        ];
-
-        $cacheKey = 'homepage_cockpit_data';
-
-        // 2. The application decides the cache strategy
-        if (app()->environment('local')) {
-            // In local, run without cache
-            $result = Cockpit::execute($queries);
-        } else {
-            // In production, use the cached helper
-            $result = Cockpit::executeCached($queries, $cacheKey);
-        }
-
-        // 3. Transform your data and pass it to the view
-        
-        // ---
-        // Option 1: Pass a single data collection (Simple & Direct)
-        // You will use the raw Cockpit model keys in your view.
-        // ---
-        $data = collect($result['data'] ?? []);
-
-        return view('homepage.index', compact('data'));
-        // In Blade, you access: $data['settingsModel']['title'], $data['heroModel']['subtitle'], etc.
-
-
-        /*
-        // ---
-        // Option 2: Pass a single, renamed data array (Cleaner for Blade)
-        // This creates a more readable array for your view.
-        // ---
-        $data = [
-            'settings' => collect($result['data']['settingsModel'] ?? []),
-            'hero'     => collect($result['data']['heroModel'] ?? []),
-            'articles' => collect($result['data']['articlesModel'] ?? []),
-        ];
-
-        return view('homepage.index', compact('data'));
-        // In Blade, you access: $data['settings']['title'], $data['hero']['subtitle'], etc.
-        */
-
-
-        /*
-        // ---
-        // Option 3: Pass individual variables (Classic approach)
-        // This makes each model a separate variable in your view.
-        // ---
-        $settings = collect($result['data']['settingsModel'] ?? []);
-        $hero     = collect($result['data']['heroModel'] ?? []);
-        $articles = collect($result['data']['articlesModel'] ?? []);
-
-        return view('homepage.index', compact('settings','hero','articles'));
-        // In Blade, you access: $settings['title'], $hero['subtitle'], etc.
-        */
+        return app()->environment('local')
+            ? Cockpit::execute($queries)
+            : Cockpit::executeCached($queries, $cacheKey);
     }
 }
 ```
 
-You can store these fragments in a Trait (`app/Http/Controllers/Traits/CockpitGQLQueries.php`):
+This way, every controller extending `Controller` gets `executeCockpitQueries()` for free, and the cache-vs-no-cache decision lives in exactly one place. `CockpitRequestException` is left uncaught here on purpose — see [Error Handling](#error-handling).
+
+GraphQL fragments live in a trait, kept separate from the controller logic:
 
 ```php
 <?php
@@ -137,44 +96,47 @@ namespace App\Http\Controllers\Traits;
 
 trait CockpitGQLQueries
 {
-    protected function getSettingsModel(): string
+    protected function getBanner(): string
     {
         return '
-            settingsModel {
-                title
-                description
+            banner: bannerModel {
+                content
+                _id
             }
         ';
     }
 
-    protected function getHeroModel(): string
+    protected function getLastNews(int $number = 2): string
     {
         return '
-            heroModel {
-                title
-                subtitle
-                picture
-            }
-        ';
-    }
-
-    protected function getArticlesModel(int $limit = 3): string
-    {
-        return '
-            articlesModel(limit: '.$limit.', filter: {_state: 1}, sort: {date: -1}) {
+            last_news: newsModel(sort: {date: -1}, limit: '.$number.') {
                 _id
                 date
+                tag
                 title
-                excerpt
+                content
+                image
+            }
+        ';
+    }
+
+    protected function getOneNews(string $id): string
+    {
+        return '
+            one_news: newsModel(filter: {_state: 1, _id:"'.$id.'"}) {
+                _id
+                date
+                tag
+                title
+                content
+                image
             }
         ';
     }
 }
 ```
 
-### Dependency Injection Example
-
-If you prefer dependency injection, the same methods are available on the `CockpitService`.
+A controller can then batch several fragments — a singleton (`bannerModel`), a limited list, and a single item filtered by ID — into one API call:
 
 ```php
 <?php
@@ -182,33 +144,38 @@ If you prefer dependency injection, the same methods are available on the `Cockp
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use lionelhenne\LaravelCockpitCms\CockpitService;
 
-class PageController extends Controller
+class CockpitTestController extends Controller
 {
-    protected $cockpit;
-
-    public function __construct(CockpitService $cockpit)
+    public function test(Request $request)
     {
-        $this->cockpit = $cockpit;
-    }
+        $data = $this->executeCockpitQueries([
+            $this->getBanner(),
+            $this->getLastNews(2),
+            $this->getOneNews('1e91181a37396565590000f6'),
+        ], 'cache_banner');
 
-    public function __invoke(Request $request)
-    {
-        $queries = [ /* ... your query fragments ... */ ];
-        $cacheKey = 'my_page_data';
-
-        if (app()->environment('local')) {
-            $result = $this->cockpit->execute($queries);
-        } else {
-            $result = $this->cockpit->executeCached($queries, $cacheKey);
-        }
-
-        $data = collect($result['data']['myModel'] ?? []);
-
-        return view('page.index', compact('data'));
+        return view('cockpit-test.index', [
+            'banner'    => $data['banner'],
+            'last_news' => $data['last_news'],
+            'one_news'  => collect($data['one_news'] ?? [])->first(),
+        ]);
     }
 }
+```
+
+A couple of things worth noting here:
+
+- `bannerModel` is a Cockpit **singleton**, so `$data['banner']` is already a single associative array — no unwrapping needed.
+- `newsModel` is a **collection**, so it's always returned as a list, even when filtered down to a single `_id`. That's why `getOneNews()` is unwrapped with `collect($data['one_news'] ?? [])->first()` in the controller — this gives the view a plain array (or `null` if nothing matched) instead of a single-item list, so `$one_news['title']` works directly in Blade rather than `$one_news[0]['title']`.
+
+```blade
+{{-- resources/views/cockpit-test/index.blade.php --}}
+@dump($banner)
+
+@dump($last_news)
+
+@dump($one_news)
 ```
 
 ### Low-Level Usage
@@ -217,52 +184,63 @@ For simple calls or testing, you can still use the low-level `query()` method, w
 
 ```php
 $query = '{
-    bannerModel {
+    banner: bannerModel {
         content
     }
 }';
 
 $result = Cockpit::query($query);
-$banner = collect($result['data']['bannerModel'] ?? []);
+$banner = $result['banner'] ?? [];
 ```
 
-### Image Proxy
+### Images
 
-The package includes an automatic image proxy with caching. Simply use the `imageUrl()` method:
+This package does not proxy, download, or cache images — it relies on the symlink described in [Configuration](#configuration). `Cockpit::image()` simply builds the relative path:
 
 ```php
 // In your controller
-$queries = [ $this->getBannerModel() ];
-$result = Cockpit::executeCached($queries, 'banner_key');
-$banner = $result['data']['bannerModel'];
-
-// In your Blade view
-<img src="{{ Cockpit::imageUrl($banner['image']['path']) }}" alt="">
+$data = $this->executeCockpitQueries([ $this->getBanner() ], 'cache_banner');
+$banner = $data['banner'];
 ```
 
-The proxy automatically:
-- Caches images in production (1 year)
-- Serves images without cache in local environment
-- Adds appropriate HTTP cache headers for browser caching
+```blade
+{{-- In your Blade view --}}
+<img src="{{ Cockpit::image($banner['image']['path']) }}" alt="">
+```
 
-You can also use it with dependency injection:
+`Cockpit::image()` returns a domain-relative path (e.g. `/cockpit-uploads/2026/06/photo.jpg`), suitable for `<img src>` on your own pages. If you need an absolute URL (Open Graph tags, RSS feeds, emails), combine it with Laravel's built-in `asset()` helper:
+
+```blade
+<meta property="og:image" content="{{ asset(ltrim(Cockpit::image($banner['image']['path']), '/')) }}">
+```
+
+## Error Handling
+
+Every API-calling method (`query`, `execute`, `executeCached`) throws a `lionelhenne\LaravelCockpitCms\CockpitRequestException` on failure — unreachable API, HTTP error response, GraphQL errors, or a response missing the expected `data` key. None of these methods silently return an error array.
 
 ```php
-// In your controller
-public function __construct(CockpitService $cockpit)
-{
-    $this->cockpit = $cockpit;
+use lionelhenne\LaravelCockpitCms\CockpitRequestException;
+
+try {
+    $data = Cockpit::execute(['newsModel { title }']);
+} catch (CockpitRequestException $e) {
+    report($e);
+    // handle the failure (fallback view, retry, etc.)
 }
-
-// In your view
-<img src="{{ $cockpit->imageUrl($article['image']['path']) }}" alt="">
 ```
 
-**Clear image cache in production:**
+If you don't catch it, the exception propagates normally and Laravel renders its standard error page (full details in local/debug mode, a generic 500 in production — always logged to `storage/logs/laravel.log`).
 
-```bash
-php artisan cache:clear
-```
+## API Reference
+
+| Method | Description |
+|---|---|
+| `query(string $graphQLQuery, array $variables = [])` | Executes a raw GraphQL query, returns the contents of `data`. |
+| `execute(array $queries)` | Assembles multiple fragments into one query and executes it. |
+| `executeCached(array $queries, string $cacheKey, $duration = null)` | Same as `execute()`, with result caching. |
+| `cachedQuery(string $key, $duration, callable $callback)` | Low-level helper, wraps `Cache::remember()`. |
+| `assembleQuery(array $queries)` | Assembles fragments into a single `{ ... }` GraphQL query string. |
+| `image(?string $path)` | Builds the relative path to a Cockpit image, via the symlink. |
 
 ## License
 
