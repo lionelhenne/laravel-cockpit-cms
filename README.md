@@ -39,11 +39,24 @@ COCKPIT_API_TOKEN="API-xxxxxxxxxxxxxxxxxxxx"
 
 3.  **Serve Cockpit images via a symlink**
 
-    This package does not proxy or cache images itself. Cockpit images are expected to be served as static files through a symlink pointing to Cockpit's own upload directory:
+    This package does not proxy or cache images itself. Cockpit images are expected to be served as static files through a symlink pointing to Cockpit's own upload directory.
+
+    The easiest way is [`cockpit-link`](https://github.com/lionelhenne/cockpit-tool#link) (or `cockpit-tool link`), run from your Laravel project root. It finds the Cockpit instance from `COCKPIT_URL` and creates a **relative** symlink, for both a local Valet setup and a Hostinger-style `domains/<site>/public_html` layout:
 
     ```bash
-    ln -s /path/to/cockpit/storage/uploads public/cockpit-uploads
+    cockpit-link
     ```
+
+    Or create it by hand, preferably with a relative path (e.g. Cockpit in a sibling folder):
+
+    ```bash
+    ln -s ../../cockpit.example.com/storage/uploads public/cockpit-uploads
+    ```
+
+    The symlink target depends on each machine, so:
+
+    - **Don't commit it**: add `/public/cockpit-uploads` to your `.gitignore`, and create the link on each machine.
+    - **Exclude it from deployments**: a `rsync --delete` would otherwise remove it on the server, or replace it with your local one.
 
     `Cockpit::image()` (see below) generates paths assuming this symlink exists at `public/cockpit-uploads`. Adjust the symlink name to match if you used a different one.
 
